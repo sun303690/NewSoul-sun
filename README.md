@@ -5,7 +5,7 @@ Soul 的 LSPosed API 102 插件，包含聊天工具、隐私控制、广场筛�
 
 ## 安装
 
-在 [Releases](https://github.com/JuanZoran/NewSoul-Releases/releases/latest) 下载正式 APK，安装后在 LSPosed 中启用并勾选 Soul，重启 Soul。
+在 下载正式 APK，安装后在 LSPosed 中启用并勾选 Soul，重启 Soul。
 长按 Soul 底部导航图标打开插件设置。AI 回复支持 DeepSeek、小米 MiMo 和自定义 OpenAI 兼容接口，密钥在插件内自行配置。
 
 公开版可覆盖升级。旧内部版用户安装统一版后，在 LSPosed 中停用旧内部模块、启用统一版并重启 Soul。
@@ -30,10 +30,7 @@ Gradle 使用 `:app:assembleRelease`；调试构建使用本机标准 Android de
 正式包的映射按 APK 哈希保存在 `build/protection-evidence/`，由构建者私下保存。
 自行签名的 APK 需与手机上已有 APK 的签名一致才能覆盖安装。
 
-## 下载与反馈
-
-蓝奏云：https://wwbnj.lanzoux.com/b007utki2d ，提取码 `3gin`。
-反馈请私聊 [@JuanZoranNewSoulReleaseBot](https://t.me/JuanZoranNewSoulReleaseBot)，并附日志与截图。
+## 
 
 ## 许可证
 
