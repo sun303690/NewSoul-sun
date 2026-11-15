@@ -1,0 +1,86 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: '构建版本'
+        required: false
+        default: public
+        type: choice
+        options: [public]
+  push:
+    branches: [main, 'ci/**']
+    paths:
+      - 'app/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'build-sdk.sh'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build-sdk (${{ inputs.edition || 'public' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Prepare signing material
+        env:
+          KEYSTORE_B64: ${{ secrets.NEWSOUL_SIGNING_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.NEWSOUL_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/share/newsoul/signing" "$HOME/.config/newsoul"
+          KS="$HOME/.local/share/newsoul/signing/new-soul-release.p12"
+          PF="$HOME/.config/newsoul/signing.pass"
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
+            printf '%s' "${KEYSTORE_PASS:?missing NEWSOUL_SIGNING_PASSWORD}" > "$PF"
+            echo "使用仓库 Secrets 中的正式签名"
+          else
+            keytool -genkeypair -noprompt -storetype PKCS12 \
+              -keystore "$KS" -storepass ci-temporary -keypass ci-temporary \
+              -alias newsoul-release -keyalg RSA -keysize 4096 -validity 3650 \
+              -dname "CN=NewSoul CI, OU=ci, O=ci, L=ci, ST=ci, C=CN"
+            printf 'ci-temporary' > "$PF"
+            echo "::warning title=临时签名::未配置 NEWSOUL_SIGNING_KEYSTORE_BASE64，产物为 CI 临时签名，不能覆盖安装已发布的正式版"
+          fi
+          chmod 600 "$KS" "$PF"
+
+      - name: Build
+        run: bash build-sdk.sh public
+
+      - name: Collect artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp build/sdk/public/*.apk build/sdk/public/*.zip out/ 2>/dev/null || true
+          cp build/sdk/public/mapping.txt out/mapping.txt 2>/dev/null || true
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: newsoul-apk
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
