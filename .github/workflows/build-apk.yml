@@ -9,8 +9,19 @@ on:
         default: public
         type: choice
         options: [public]
+      publish:
+        description: '构建后发布到 Releases'
+        required: false
+        default: true
+        type: boolean
+      publish_tag:
+        description: '发布用 tag（留空则用 ci-<run_number>）'
+        required: false
+        default: ''
+        type: string
   push:
     branches: [main, 'ci/**']
+    tags: ['v*']
     paths:
       - 'app/**'
       - 'scripts/**'
@@ -21,7 +32,7 @@ on:
       - '.github/workflows/build-apk.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-apk-${{ github.ref }}
@@ -45,6 +56,7 @@ jobs:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - name: Prepare signing material
+        id: signing
         env:
           KEYSTORE_B64: ${{ secrets.NEWSOUL_SIGNING_KEYSTORE_BASE64 }}
           KEYSTORE_PASS: ${{ secrets.NEWSOUL_SIGNING_PASSWORD }}
@@ -56,6 +68,7 @@ jobs:
           if [ -n "${KEYSTORE_B64:-}" ]; then
             printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
             printf '%s' "${KEYSTORE_PASS:?missing NEWSOUL_SIGNING_PASSWORD}" > "$PF"
+            echo "official=true" >> "$GITHUB_OUTPUT"
             echo "使用仓库 Secrets 中的正式签名"
           else
             keytool -genkeypair -noprompt -storetype PKCS12 \
@@ -63,6 +76,7 @@ jobs:
               -alias newsoul-release -keyalg RSA -keysize 4096 -validity 3650 \
               -dname "CN=NewSoul CI, OU=ci, O=ci, L=ci, ST=ci, C=CN"
             printf 'ci-temporary' > "$PF"
+            echo "official=false" >> "$GITHUB_OUTPUT"
             echo "::warning title=临时签名::未配置 NEWSOUL_SIGNING_KEYSTORE_BASE64，产物为 CI 临时签名，不能覆盖安装已发布的正式版"
           fi
           chmod 600 "$KS" "$PF"
@@ -84,3 +98,42 @@ jobs:
           path: out/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish to Releases
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OFFICIAL: ${{ steps.signing.outputs.official }}
+          TAG_INPUT: ${{ inputs.publish_tag }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RN: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          if [ -n "${TAG_INPUT:-}" ]; then tag="$TAG_INPUT"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then tag="${GITHUB_REF_NAME}"
+          else tag="ci-${RN}"; fi
+          apk=$(basename "$(ls out/*.apk | head -n1)")
+          {
+            echo "NewSoul 自动构建（${BRANCH} @ ${SHA:0:7}）"
+            echo
+            echo "- 构建流水线：${RUN_URL}"
+            echo "- 构建入口：\`build-sdk.sh public\`（javac 17 + R8 + aapt2 + apksigner）"
+            if [ "${OFFICIAL}" = "true" ]; then
+              echo "- 签名：仓库 Secrets 中的正式 PKCS12（可覆盖安装同签名旧版）"
+            else
+              echo "- 签名：**CI 临时签名**（未配置 NEWSOUL_SIGNING_KEYSTORE_BASE64），不能覆盖安装正式版，首次安装需先卸载旧版"
+            fi
+            echo
+            echo "安装：下载 \`${apk}\`，在 LSPosed 管理器里安装模块并勾选作用域（cn.soulapp）。"
+            echo "\`new-soul-*.zip\` 为同一构建的 zip 包（含 dex 与 resources），\`mapping.txt\` 为 R8 混淆映射，用于解读崩溃堆栈。"
+          } > notes.md
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" out/*.apk out/*.zip out/mapping.txt --clobber
+          else
+            args=(--title "NewSoul ${tag}" --notes-file notes.md)
+            case "$tag" in v*) ;; *) args+=(--prerelease) ;; esac
+            gh release create "$tag" out/*.apk out/*.zip out/mapping.txt "${args[@]}"
+          fi
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
