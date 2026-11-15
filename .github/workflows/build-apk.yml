@@ -130,10 +130,10 @@ jobs:
             echo "\`new-soul-*.zip\` 为同一构建的 zip 包（含 dex 与 resources），\`mapping.txt\` 为 R8 混淆映射，用于解读崩溃堆栈。"
           } > notes.md
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" out/*.apk out/*.zip out/mapping.txt --clobber
+            gh release upload "$tag" out/new-soul-*.apk out/new-soul-*.zip out/mapping.txt --clobber
           else
             args=(--title "NewSoul ${tag}" --notes-file notes.md)
             case "$tag" in v*) ;; *) args+=(--prerelease) ;; esac
-            gh release create "$tag" out/*.apk out/*.zip out/mapping.txt "${args[@]}"
+            gh release create "$tag" out/new-soul-*.apk out/new-soul-*.zip out/mapping.txt "${args[@]}"
           fi
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
